@@ -1,0 +1,76 @@
+%% Преамбула TeX-файла
+
+% 1. Стиль и язык
+\documentclass[utf8x, 14pt]{G7-32} % Стиль (по умолчанию будет 14pt)
+
+% Остальные стандартные настройки убраны в preamble.inc.tex.
+\include{preamble.inc}
+
+% Настройки листингов.
+\ifPDFTeX
+\include{listings.inc}
+\else
+\usepackage{local-minted}
+\fi
+
+% Стиль титульного листа и заголовки
+% \include{00-title}
+
+
+\begin{document}
+\includepdf[pages=-]{title.pdf}
+
+\pagenumbering{arabic}
+\setcounter{page}{2}
+\frontmatter % выключает нумерацию ВСЕГО; здесь начинаются ненумерованные главы: реферат, введение, глоссарий, сокращения и прочее.
+
+%\maketitle %создает титульную страницу
+% \afterpage{\blankpage}\afterpage{\blankpage}\afterpage{\blankpage}
+% пропущены страницы под тз и план (у меня их 2 тз и 1 план, итого 3, вам надо пропустить столько, сколько страниц у вас в тз и плане)
+
+
+%\listoffigures                         % Список рисунков
+
+%\listoftables                          % Список таблиц
+
+%\NormRefs % Нормативные ссылки 
+% Команды \breakingbeforechapters и \nonbreakingbeforechapters
+% управляют разрывом страницы перед главами.
+% По-умолчанию страница разрывается.
+% \include{11-referat}
+% \nobreakingbeforechapters
+% \breakingbeforechapters
+
+\tableofcontents
+
+% \printnomenclature % Автоматический список сокращений
+
+\include{12-intro}
+
+\mainmatter % это включает нумерацию глав и секций в документе ниже
+
+\include{20-analysis}
+\include{30-design}
+\include{40-impl}
+\include{50-research}
+
+\backmatter %% Здесь заканчивается нумерованная часть документа и начинаются ссылки и
+            
+\include{80-conclusion}%% заключение
+
+
+\include{81-biblio}
+
+%
+\appendix   % Тут идут приложения
+%
+% \include{90-appendix1}
+%
+%\include{91-appendix2}
+
+\end{document}
+
+%%% Local Variables:
+%%% mode: latex
+%%% TeX-master: t
+%%% End:
