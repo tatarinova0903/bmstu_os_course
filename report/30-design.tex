@@ -12,7 +12,7 @@
 \end{figure}
 
 \begin{figure}[ph!]
-	\center{\includegraphics[scale=0.8]{img/idef0_1.pdf}}
+	\center{\includegraphics[scale=0.9]{img/idef0_1.pdf}}
 	\caption{Диаграмма состояний IDEF0 первого уровня}
 	\label{fig:idef1}
 \end{figure}
@@ -21,14 +21,32 @@
 
 \section{Алгоритм инициализации модуля}
 
-\section{Алгоритмы функций--оберток}
+На рисунке \ref{fig:init} приведена схема алгоритма инициализации модуля.
+
+\begin{figure}[ph!]
+	\center{\includegraphics[scale=0.6]{img/init.pdf}}
+	\caption{Алгоритм инициализации модуля}
+	\label{fig:init}
+\end{figure}
+
+\section{Алгоритм обработчика системного вызова}
+
+На рисунке \ref{fig:openat} представлен пример алгоритма собственного обработчика системного вызова openat().
+
+\begin{figure}[ph!]
+	\center{\includegraphics[scale=0.65]{img/openat.pdf}}
+	\caption{Алгоритм собственного обработчика системного вызова функции openat()}
+	\label{fig:openat}
+\end{figure}
 
 \section{Структура программного обеспечения}
 
 На рисунке \ref{fig:struct} представлена структура программного обеспечения.
 
+\clearpage
+
 \begin{figure}[ph!]
-	\center{\includegraphics[scale=0.2]{img/start.png}}
+	\center{\includegraphics[scale=1]{img/structure.pdf}}
 	\caption{Структура программного обеспечения}
 	\label{fig:struct}
 \end{figure}
