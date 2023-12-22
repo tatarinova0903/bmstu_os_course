@@ -123,9 +123,8 @@ static int fh_init(void)
 
     err = start_hook_resources();
     if (err)
-        pr_info("Problem in hook functions");
+        DMSG("Problem in hook functions");
 
-    // module_hide();
     tidy();
 
     /* Get a range of minor numbers (starting with 0) to work with */
@@ -133,7 +132,7 @@ static int fh_init(void)
 
     if (error < 0)
     {
-        pr_err("Can't get major number\n");
+        DMSG("Can't get major number\n");
         return error;
     }
 
