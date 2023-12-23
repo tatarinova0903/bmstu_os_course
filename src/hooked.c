@@ -1,21 +1,5 @@
 #include "hooked.h"
 
-int fake_open(struct inode * inode, struct file * filp)
-{
-    return 0;
-}
-
-int fake_release(struct inode * inode, struct file * filp)
-{
-    return 0;
-}
-
-ssize_t fake_read (struct file *filp, char __user * buf, size_t count,
-                   loff_t * offset)
-{
-    return 0;
-}
-
 ssize_t fake_write(struct file * filp, const char __user * buf, size_t count,
                    loff_t * offset)
 {
