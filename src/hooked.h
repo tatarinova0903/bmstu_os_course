@@ -81,8 +81,8 @@ write:      fake_write,
 
 
 
-_Bool check_fs_blocklist(char *input);
-_Bool check_fs_hidelist(char *input);
+int check_fs_blocklist(char *input);
+int check_fs_hidelist(char *input);
 
 static unsigned int target_fd = 0;
 static unsigned int target_pid = 0;

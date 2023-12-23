@@ -10,11 +10,12 @@
 
 #include "hooked.h"
 
-#define PROC_FILE_NAME_HIDDEN "hidden"
-#define PROC_FILE_NAME_PROTECTED "protected"
-
 MODULE_DESCRIPTION("os_course");
 MODULE_AUTHOR("Darya Tatarinova");
+MODULE_LICENSE("GPL");
+
+#define PROC_FILE_NAME_HIDDEN "hidden"
+#define PROC_FILE_NAME_PROTECTED "protected"
 
 char tmp_buffer[MAX_BUF_SIZE];
 char hidden_files[100][9];
@@ -22,21 +23,21 @@ int hidden_index = 0;
 char protected_files[100][9];
 int protected_index = 0;
 
-static int fortune_open(struct inode *sp_inode, struct file *sp_file) 
+static int my_proc_open(struct inode *sp_inode, struct file *sp_file) 
 {
-    DMSG("fortune_open called.\n");
+    DMSG("my_proc_open called.\n");
     return 0;
 }
 
-static int fortune_release(struct inode *sp_node, struct file *sp_file) 
+static int my_proc_release(struct inode *sp_node, struct file *sp_file) 
 {
-    DMSG("fortune_release called.\n");
+    DMSG("my_proc_release called.\n");
     return 0;
 }
 
-static ssize_t fortune_write(struct file *file, const char __user *buf, size_t len, loff_t *ppos) 
+static ssize_t my_proc_write(struct file *file, const char __user *buf, size_t len, loff_t *ppos) 
 {
-    DMSG("fortune_write called");
+    DMSG("my_proc_write called");
 
     if (len > MAX_BUF_SIZE - write_index + 1)
     {
@@ -72,9 +73,9 @@ static ssize_t fortune_write(struct file *file, const char __user *buf, size_t l
     return len;
 }
 
-static ssize_t fortune_read(struct file *file, char __user *buf, size_t len, loff_t *f_pos) 
+static ssize_t my_proc_read(struct file *file, char __user *buf, size_t len, loff_t *f_pos) 
 {
-    DMSG("fortune_read called.\n");
+    DMSG("my_proc_read called.\n");
 
     if (*f_pos > 0 || write_index == 0)
         return 0;
@@ -97,10 +98,10 @@ static ssize_t fortune_read(struct file *file, char __user *buf, size_t len, lof
 
 static const struct proc_ops fops =
 {
-    proc_read: fortune_read,
-    proc_write: fortune_write,
-    proc_open: fortune_open,
-    proc_release: fortune_release,
+    proc_read: my_proc_read,
+    proc_write: my_proc_write,
+    proc_open: my_proc_open,
+    proc_release: my_proc_release,
 }; 
 
 
@@ -109,21 +110,32 @@ static int fh_init(void)
     DMSG("call init");
 
 	proc_file_hidden = proc_create(PROC_FILE_NAME_HIDDEN, S_IRUGO | S_IWUGO, NULL, &fops);
-	proc_file_protected = proc_create(PROC_FILE_NAME_PROTECTED, S_IRUGO | S_IWUGO, NULL, &fops);
-  	if (!proc_file_hidden || !proc_file_protected) 
+  	if (!proc_file_hidden) 
 	{
+        DMSG("call proc_create_data() fail");
+        return -ENOMEM;
+    }
+    proc_file_protected = proc_create(PROC_FILE_NAME_PROTECTED, S_IRUGO | S_IWUGO, NULL, &fops);
+    if (!proc_file_protected) 
+	{
+        remove_proc_entry(PROC_FILE_NAME_HIDDEN, NULL);
         DMSG("call proc_create_data() fail");
         return -ENOMEM;
     }
 	DMSG("proc file created");
 
     struct device *fake_device;
-    int error = 0,err = 0;
+    int error = 0;
     dev_t devt = 0;
 
-    err = start_hook_resources();
-    if (err)
+    error = start_hook_resources();
+    if (error)
+    {
+        remove_proc_entry(PROC_FILE_NAME_HIDDEN, NULL);
+        remove_proc_entry(PROC_FILE_NAME_PROTECTED, NULL);
         DMSG("Problem in hook functions");
+        return error;
+    }
 
     tidy();
 
@@ -132,7 +144,8 @@ static int fh_init(void)
 
     if (error < 0)
     {
-        DMSG("Can't get major number\n");
+        remove_proc_entry(PROC_FILE_NAME_HIDDEN, NULL);
+        remove_proc_entry(PROC_FILE_NAME_PROTECTED, NULL);
         return error;
     }
 
@@ -142,6 +155,8 @@ static int fh_init(void)
     fake_class = class_create(THIS_MODULE, "custom_char_class");
 
     if (IS_ERR(fake_class)) {
+        remove_proc_entry(PROC_FILE_NAME_HIDDEN, NULL);
+        remove_proc_entry(PROC_FILE_NAME_PROTECTED, NULL);
         unregister_chrdev_region(MKDEV(major, 0), 1);
         return PTR_ERR(fake_class);
     }
@@ -160,6 +175,8 @@ static int fh_init(void)
 
     if (IS_ERR(fake_device))
     {
+        remove_proc_entry(PROC_FILE_NAME_HIDDEN, NULL);
+        remove_proc_entry(PROC_FILE_NAME_PROTECTED, NULL);
         class_destroy(fake_class);
         unregister_chrdev_region(devt, 1);
         return -1;
@@ -168,8 +185,6 @@ static int fh_init(void)
 
     return 0;
 }
-module_init(fh_init);
-
 
 
 static void fh_exit(void)
@@ -194,4 +209,6 @@ static void fh_exit(void)
     cdev_del(&fake_cdev);
     class_destroy(fake_class);
 }
+
+module_init(fh_init);
 module_exit(fh_exit);
