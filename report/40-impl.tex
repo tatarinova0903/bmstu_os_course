@@ -1,64 +1,104 @@
 \chapter{Технологический раздел}
 \label{cha:impl}
 
-%\section{Средства и детали реализации}
+\section{Выбор языка и среды программирования}
 
-%В качестве языка программирования для реализации поставленной задачи был выбран язык Си. Для сборки модуля использовалась утилита make. В качестве среды разработки был выбран VSCode.
+В качестве языка программирования был выбран язык Си. Для сборки модуля использовалась утилита make. В качестве среды программирования был выбран VSCode.
 
-\section{Инициализация модуля}
+\section{Реализация алгоритма создания символьного устройства}
 
-В листинге \ref{code:init} приведена реализация функции инициализации модуля.
+В листинге \ref{code:init} приведена реализация алгоритма создания символьного устройства.
 
-\begin{lstlisting}[label=code:init,caption=Инициализация модуля]
-static int fh_init(void)
+\begin{lstlisting}[label=code:init,caption=Реализация алгоритма создания символьного устройства]
+error = alloc_chrdev_region(&devt, 0, 1, "usb15");
+
+if (error < 0)
 {
-	proc_file_hidden = proc_create(PROC_FILE_NAME_HIDDEN, S_IRUGO | S_IWUGO, NULL, &fops);
-	if (!proc_file_hidden) 
+	remove_proc_entry(PROC_FILE_NAME_HIDDEN, NULL);
+	remove_proc_entry(PROC_FILE_NAME_PROTECTED, NULL);
+	return error;
+}
+
+major = MAJOR(devt);
+minor = MINOR(devt);
+
+fake_class = class_create(THIS_MODULE, "custom_char_class");
+
+if (IS_ERR(fake_class)) {
+	remove_proc_entry(PROC_FILE_NAME_HIDDEN, NULL);
+	remove_proc_entry(PROC_FILE_NAME_PROTECTED, NULL);
+	unregister_chrdev_region(MKDEV(major, minor), 1);
+	return PTR_ERR(fake_class);
+}
+
+cdev_init(&fake_cdev, &fake_fops);
+fake_cdev.owner = THIS_MODULE;
+cdev_add(&fake_cdev, devt, 1);
+
+fake_device = device_create(fake_class,
+	NULL,   /* no parent device */
+	devt,    /* associated dev_t */
+	NULL,   /* no additional data */
+	"usb15");  /* device name */
+
+if (IS_ERR(fake_device))
+{
+	remove_proc_entry(PROC_FILE_NAME_HIDDEN, NULL);
+	remove_proc_entry(PROC_FILE_NAME_PROTECTED, NULL);
+	class_destroy(fake_class);
+	unregister_chrdev_region(devt, 1);
+	return -1;
+}
+\end{lstlisting}
+
+\section{Реализация алгоритма проверки наличия разрешения на модификацию файла}
+
+Реализация алгоритма проверки наличия разрешения на модификацию файла представлена в листинге \ref{code:func}.
+
+\begin{lstlisting}[label=code:func,caption=Реализация алгоритма проверки наличия разрешения на модификацию файла]
+int check_fs_blocklist(char *input)
+{
+	int i = 0;
+	
+	if (fs_protect==0)
 	{
-		return -ENOMEM;
+		return 0;
 	}
 	
-	struct device *fake_device;
-	int error = 0,err = 0;
-	dev_t devt = 0;
-	
-	start_hook_resources();
-	
-	tidy();
-	
-	error = alloc_chrdev_region(&devt, 0, 1, "usb15");
-	
-	if (error < 0)
+	if (strlen(protected_files[0]) <= 2)
 	{
-		return error;
+		return 0;
 	}
 	
-	major = MAJOR(devt);
-	
-	fake_class = class_create(THIS_MODULE, "custom_char_class");
-	
-	if (IS_ERR(fake_class)) {
-		unregister_chrdev_region(MKDEV(major, 0), 1);
-		return PTR_ERR(fake_class);
-	}
-	
-	cdev_init(&fake_cdev, &fake_fops);
-	fake_cdev.owner = THIS_MODULE;
-	cdev_add(&fake_cdev, devt, 1);
-	
-	fake_device = device_create(fake_class,
-		NULL,   /* no parent device */
-		devt,    /* associated dev_t */
-		NULL,   /* no additional data */
-		"usb15");  /* device name */
-	
-	if (IS_ERR(fake_device))
+	while (i != protected_index)
 	{
-		class_destroy(fake_class);
-		unregister_chrdev_region(devt, 1);
-		return -1;
+		if(strstr(input, protected_files[i]) != NULL)
+		return 1;
+		i++;
 	}
 	
+	return 0;
+}
+
+int check_fs_hidelist(char *input)
+{
+	int i = 0;
+	if (fs_hidden == 0)
+	{
+		return 0;
+	}
+	
+	if (strlen(hidden_files[0]) <= 2)
+	{
+		return 0;
+	}
+	
+	while (i != hidden_index)
+	{
+		if(strstr(input, hidden_files[i]) != NULL)
+		return 1;
+		i++;
+	}
 	
 	return 0;
 }
@@ -69,157 +109,12 @@ static int fh_init(void)
 Инициализация полей структуры ftrace\_hook представлена в листинге~\ref{code:ftracehook2}.
 
 \begin{lstlisting}[label=code:ftracehook2,caption=Инициализация полей структуры ftrace\_hook]
-static struct ftrace_hook demo_hooks[] = {
-	HOOK("sys_write", fh_sys_write, &real_sys_write),
-	HOOK("sys_openat", fh_sys_openat, &real_sys_openat),
-	HOOK("sys_unlinkat", fh_sys_unlinkat, &real_sys_unlinkat),
-	HOOK("sys_getdents64", fh_sys_getdents64, &real_sys_getdents64)
-};
+	static struct ftrace_hook demo_hooks[] = {
+		HOOK("sys_write", fh_sys_write, &real_sys_write),
+		HOOK("sys_openat", fh_sys_open, &real_sys_open),
+		HOOK("sys_unlinkat", fh_sys_unlinkat, &real_sys_unlinkat),
+		HOOK("sys_getdents64", fh_sys_getdents64, &real_sys_getdents64)
+	};
 \end{lstlisting}
-
-\section{Реализация обработчиков системных вызовов}
-
-Реализация функций--оберток представлена в листингах \ref{code:func1}--\ref{code:func4}.
-
-\begin{lstlisting}[label=code:func1,caption=Функция fh\_sys\_write]
-static asmlinkage long fh_sys_write(unsigned int fd, const char __user *buf,
-size_t count)
-{
-	long ret;
-	struct task_struct *taskd;
-	struct kernel_siginfo info;
-	int signum = SIGKILL, ret 0;
-	task = current;
-	
-	if (task->pid == target_pid)
-	{
-		if (fd == target_fd)
-		{
-			memset(&info, 0, sizeof(struct kernel_siginfo));
-			info.si_signo = signum;
-			ret = send_sig_info(signum, &info, task);
-			if (ret < 0)
-			{
-				printk(KERN_INFO "error sending signal\n");
-			}
-			else
-			{
-				printk(KERN_INFO "Target has been killed\n");
-				return 0;
-			}
-		}
-	}
-	
-	char tmp_path=get_filename(buf);
-	if (check_fs_blocklist(tmp_path))
-	{
-		kfree(tmp_path);
-		return NULL;
-	}
-	ret = real_sys_write(fd, buf, count);
-
-	return ret;
-}
-\end{lstlisting}
-
-\begin{lstlisting}[label=code:func2,caption=Функция fh\_sys\_openat]
-static asmlinkage long fh_sys_openat(int dfd, const char __user *filename,
-int flags, umode_t mode)
-{
-	long ret=0;
-	char *kernel_filename;
-	struct task_struct *task;
-	task = current;
-	
-	kernel_filename = get_filename(filename);
-	
-	if (check_fs_blocklist(kernel_filename))
-	{
-		kfree(kernel_filename);
-		ret = real_sys_openat(dfd, filename, flags, mode);
-		target_fd = ret;
-		target_pid = task->pid;
-		ret=0;
-		return ret;
-	}
-	
-	kfree(kernel_filename);
-	ret = real_sys_openat(filename, flags, mode);
-	return ret;
-}
-\end{lstlisting}
-
-\begin{lstlisting}[label=code:func3,caption=Функция fh\_sys\_unlinkat]
-static asmlinkage long fh_sys_unlinkat (int dirfd, const char __user *filename, int flags);
-{
-	long ret=0;
-	char *kernel_filename = get_filename(filename);
-	
-	if (check_fs_blocklist(kernel_filename))
-	{
-		kfree(kernel_filename);
-		pr_info("blocked to not remove file : %s\n", kernel_filename);
-		ret=0;
-		kfree(kernel_filename);
-		return ret;
-	}
-	
-	kfree(kernel_filename);
-	ret = real_sys_unlinkat(dirfd,filename, flags);
-	return ret;
-}
-\end{lstlisting}
-
-\begin{lstlisting}[label=code:func4,caption=Функция fh\_sys\_getdents64]
-static asmlinkage int fh_sys_getdents64(const struct pt_regs *regs)
-{
-	struct linux_dirent64 __user *dirent = (struct linux_dirent64 *)regs->si;
-	struct linux_dirent64 *previous_dir, *current_dir, *dirent_ker = NULL;
-	unsigned long offset = 0;
-	int ret = real_sys_getdents64(regs);
-	dirent_ker = kzalloc(ret, GFP_KERNEL);
-	
-	if ( (ret <= 0) || (dirent_ker == NULL) )
-		return ret;
-	
-	long error;
-	error = copy_from_user(dirent_ker, dirent, ret);
-	
-	if(error)
-	{
-		kfree(dirent_ker);
-		return ret;
-	}
-	
-	while (offset < ret)
-	{
-		current_dir = (void *)dirent_ker + offset;
-		
-		if (check_fs_hidelist(current_dir->d_name))
-		{
-			if (current_dir == dirent_ker )
-			{
-				ret -= current_dir->d_reclen;
-				memmove(current_dir, (void *)current_dir + current_dir->d_reclen, ret);
-				continue;
-			}
-			previous_dir->d_reclen += current_dir->d_reclen;
-		}
-		else
-		{
-			previous_dir = current_dir;
-		}
-		offset += current_dir->d_reclen;
-	}
-	
-	error = copy_to_user(dirent, dirent_ker, ret);
-	if(error)
-	{
-		kfree(dirent_ker);
-		return ret;
-	}
-}
-\end{lstlisting}
-
 
 

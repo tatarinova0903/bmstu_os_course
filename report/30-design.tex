@@ -19,31 +19,29 @@
 
 \clearpage
 
-\section{Алгоритм инициализации модуля}
+\section{Алгоритм создания символьного устройства}
 
-На рисунке \ref{fig:init} приведена схема алгоритма инициализации модуля.
+На рисунке \ref{fig:dev} приведена схема создания символьного устройства.
 
 \begin{figure}[ph!]
-	\center{\includegraphics[scale=0.6]{img/init.pdf}}
-	\caption{Алгоритм инициализации модуля}
-	\label{fig:init}
+	\center{\includegraphics[scale=0.65]{img/cdev.pdf}}
+	\caption{Алгоритм создания символьного устройства}
+	\label{fig:dev}
 \end{figure}
 
-\section{Алгоритм обработчика системного вызова}
+\section{Алгоритм проверки наличия разрешения на модификацию файла}
 
-На рисунке \ref{fig:openat} представлен пример алгоритма собственного обработчика системного вызова openat().
+На рисунке \ref{fig:init} приведена схема алгоритма проверки наличия разрешения на модификацию файла.
 
 \begin{figure}[ph!]
-	\center{\includegraphics[scale=0.65]{img/openat.pdf}}
-	\caption{Алгоритм собственного обработчика системного вызова функции openat()}
-	\label{fig:openat}
+	\center{\includegraphics[scale=0.6]{img/check.pdf}}
+	\caption{Алгоритм проверки наличия разрешения на модификацию файла}
+	\label{fig:init}
 \end{figure}
 
 \section{Структура программного обеспечения}
 
 На рисунке \ref{fig:struct} представлена структура программного обеспечения.
-
-\clearpage
 
 \begin{figure}[ph!]
 	\center{\includegraphics[scale=1]{img/structure.pdf}}
@@ -51,7 +49,5 @@
 	\label{fig:struct}
 \end{figure}
 
-\section*{Вывод}
-В данном разделе были рассмотрены алгоритмы работы сервера и обработки запроса.
 
 
