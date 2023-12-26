@@ -5,102 +5,114 @@
 
 В качестве языка программирования был выбран язык Си. Для сборки модуля использовалась утилита make. В качестве среды программирования был выбран VSCode.
 
-\section{Реализация алгоритма создания символьного устройства}
+\section{Реализация алгоритма проверки необходимости сокрытия файла}
 
-В листинге \ref{code:init} приведена реализация алгоритма создания символьного устройства.
+В листинге \ref{code:getdents} приведена реализация алгоритма проверки необходимости сокрытия файл.
 
-\begin{lstlisting}[label=code:init,caption=Реализация алгоритма создания символьного устройства]
-error = alloc_chrdev_region(&devt, 0, 1, "usb15");
-
-if (error < 0)
+\begin{lstlisting}[label=code:getdents,caption=Реализация алгоритма проверки необходимости сокрытия файл]
+static asmlinkage int fh_sys_getdents64(const struct pt_regs *regs)
 {
-	remove_proc_entry(PROC_FILE_NAME_HIDDEN, NULL);
-	remove_proc_entry(PROC_FILE_NAME_PROTECTED, NULL);
-	return error;
-}
-
-major = MAJOR(devt);
-minor = MINOR(devt);
-
-fake_class = class_create(THIS_MODULE, "custom_char_class");
-
-if (IS_ERR(fake_class)) {
-	remove_proc_entry(PROC_FILE_NAME_HIDDEN, NULL);
-	remove_proc_entry(PROC_FILE_NAME_PROTECTED, NULL);
-	unregister_chrdev_region(MKDEV(major, minor), 1);
-	return PTR_ERR(fake_class);
-}
-
-cdev_init(&fake_cdev, &fake_fops);
-fake_cdev.owner = THIS_MODULE;
-cdev_add(&fake_cdev, devt, 1);
-
-fake_device = device_create(fake_class,
-	NULL,   /* no parent device */
-	devt,    /* associated dev_t */
-	NULL,   /* no additional data */
-	"usb15");  /* device name */
-
-if (IS_ERR(fake_device))
-{
-	remove_proc_entry(PROC_FILE_NAME_HIDDEN, NULL);
-	remove_proc_entry(PROC_FILE_NAME_PROTECTED, NULL);
-	class_destroy(fake_class);
-	unregister_chrdev_region(devt, 1);
-	return -1;
+	struct linux_dirent64 __user *dirent = (struct linux_dirent64 *)regs->si;
+	struct linux_dirent64 *previous_dir, *current_dir, *dirent_ker = NULL;
+	unsigned long offset = 0;
+	int ret = real_sys_getdents64(regs);
+	
+	dirent_ker = kzalloc(ret, GFP_KERNEL);
+	
+	if ((ret <= 0) || (dirent_ker == NULL))
+	{
+		return ret;
+	}
+	
+	copy_from_user(dirent_ker, dirent, ret);
+	
+	while (offset < ret)
+	{
+		current_dir = (void *)dirent_ker + offset;
+		
+		if (check_fs_hidelist(current_dir->d_name))
+		{
+			if (current_dir == dirent_ker)
+			{
+				ret -= current_dir->d_reclen;
+				memmove(current_dir, (void *)current_dir + current_dir->d_reclen, ret);
+				continue;
+			}
+			
+			previous_dir->d_reclen += current_dir->d_reclen;
+		}
+		else
+		{
+			previous_dir = current_dir;
+		}
+		
+		offset += current_dir->d_reclen;
+	}
+	
+	copy_to_user(dirent, dirent_ker, ret);
+	
+	kfree(dirent_ker);
+	return ret;
 }
 \end{lstlisting}
 
-\section{Реализация алгоритма проверки наличия разрешения на модификацию файла}
+\section{Реализация алгоритма проверки разрешения на удаление файла}
 
-Реализация алгоритма проверки наличия разрешения на модификацию файла представлена в листинге \ref{code:func}.
+Реализация алгоритма проверки разрешения на удаление файла представлена в листинге \ref{code:unlink}.
 
-\begin{lstlisting}[label=code:func,caption=Реализация алгоритма проверки наличия разрешения на модификацию файла]
-int check_fs_blocklist(char *input)
+\begin{lstlisting}[label=code:unlink,caption=Реализация алгоритма проверки разрешения на удаление файла]
+static asmlinkage long fh_sys_unlink(struct pt_regs *regs)
 {
-	int i = 0;
+	long ret=0;
+	char *kernel_filename = get_filename((void*) regs->si);
 	
-	if (fs_protect==0)
+	if (check_fs_blocklist(kernel_filename))
 	{
-		return 0;
+		ret=0;
+		kfree(kernel_filename);
+		return ret;
 	}
 	
-	if (strlen(protected_files[0]) <= 2)
-	{
-		return 0;
-	}
+	kfree(kernel_filename);
+	ret = real_sys_unlink(regs);
 	
-	while (i != protected_index)
-	{
-		if(strstr(input, protected_files[i]) != NULL)
-		return 1;
-		i++;
-	}
-	
-	return 0;
+	return ret;
 }
+\end{lstlisting}
 
-int check_fs_hidelist(char *input)
+\section{Реализация алгоритма проверки разрешения на чтение из файла}
+
+Реализация алгоритма проверки разрешения на чтение из файла представлена в листинге \ref{code:read}.
+
+\begin{lstlisting}[label=code:read,caption=Реализация алгоритма проверки разрешения на чтение из файла]
+static asmlinkage long fh_sys_read(struct pt_regs *regs)
 {
-	int i = 0;
-	if (fs_hidden == 0)
+	long ret = 0;
+	struct task_struct *task = current;
+	if (task->pid == target_pid && regs->si == target_fd)
 	{
 		return 0;
 	}
-	
-	if (strlen(hidden_files[0]) <= 2)
+	ret = real_sys_read(regs);
+	return ret;
+}
+\end{lstlisting}
+
+\section{Реализация алгоритма проверки разрешения на запись в файл}
+
+Реализация алгоритма проверки разрешения на запись в файл представлена в листинге \ref{code:write}.
+
+\begin{lstlisting}[label=code:write,caption=Реализация алгоритма проверки разрешения на запись в файл]
+static asmlinkage long fh_sys_write(struct pt_regs *regs)
+{
+	long ret = 0;
+	struct task_struct *task = current;
+	if (task->pid == target_pid && regs->si == target_fd)
 	{
 		return 0;
 	}
-	
-	while (i != hidden_index)
-	{
-		if(strstr(input, hidden_files[i]) != NULL)
-		return 1;
-		i++;
-	}
-	
-	return 0;
+	ret = real_sys_write(regs);
+	return ret;
 }
 \end{lstlisting}
 
@@ -109,12 +121,32 @@ int check_fs_hidelist(char *input)
 Инициализация полей структуры ftrace\_hook представлена в листинге~\ref{code:ftracehook2}.
 
 \begin{lstlisting}[label=code:ftracehook2,caption=Инициализация полей структуры ftrace\_hook]
-	static struct ftrace_hook demo_hooks[] = {
-		HOOK("sys_write", fh_sys_write, &real_sys_write),
-		HOOK("sys_openat", fh_sys_open, &real_sys_open),
-		HOOK("sys_unlinkat", fh_sys_unlinkat, &real_sys_unlinkat),
-		HOOK("sys_getdents64", fh_sys_getdents64, &real_sys_getdents64)
-	};
+static struct ftrace_hook demo_hooks[] = {
+	HOOK("sys_write", fh_sys_write, &real_sys_write),
+	HOOK("sys_read", fh_sys_read, &real_sys_read),
+	HOOK("sys_open", fh_sys_open, &real_sys_open),
+	HOOK("sys_unlink", fh_sys_unlink, &real_sys_unlink),
+	HOOK("sys_getdents64", fh_sys_getdents64, &real_sys_getdents64)
+};
 \end{lstlisting}
 
+\section{Makefile}
 
+В листинге \ref{code:makefile} представлен Makefile.
+
+\begin{lstlisting}[label=code:makefile,caption=Makefile]
+CONFIG_MODULE_SIG=n
+PWD := $(shell pwd)
+CC := gcc
+KERNEL_PATH ?= /lib/modules/$(shell uname -r)/build
+ccflags-y	+= -Wall -Wdeclaration-after-statement
+
+obj-m += my_module.o
+casperfs-objs := main.o hooked.o 
+
+all:
+make -C $(KERNEL_PATH) M=$(PWD) modules
+
+clean:
+make -C $(KERNEL_PATH) M=$(PWD) clean
+\end{lstlisting}

