@@ -32,6 +32,8 @@ $ ls
 файлы, для которых необходимо запретить запись, чтение и удаление
 
 ```bash
+$ echo protected.txt > protected // в /proc
+
 $ ls
 test.txt protected.txt
 $ rm protected.txt
@@ -47,3 +49,6 @@ test.txt
 В РПЗ написано, что я подменяю open и unlink. Но на самом деле подменяются openat и unlinkat. Перехват open и unlink у меня не завелись, поэтому пришлось соврать.
 
 Еще у меня не работает нормально write. если будете пытаться выполнить echo в файл, то терминал просто убьется. Хотя запись выполнена не будет, и формально тз выполнено)
+
+## PPS
+Идея и основной код были взяты из https://github.com/timb-machine-mirrors/CoolerVoid-casper-fs.git
