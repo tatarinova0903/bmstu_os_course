@@ -14,7 +14,7 @@
 файлы которые необходимо скрыть
 
 ```bash
-$ echo hiddent.txt > hidden // в /proc
+$ echo hiddent.txt > hidden # в /proc
 
 $ touch hidden.txt
 $ ls
@@ -32,7 +32,7 @@ $ ls
 файлы, для которых необходимо запретить запись, чтение и удаление
 
 ```bash
-$ echo protected.txt > protected // в /proc
+$ echo protected.txt > protected # в /proc
 
 $ ls
 test.txt protected.txt
